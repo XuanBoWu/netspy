@@ -3,7 +3,7 @@
 
 int main(){
     
-    check_interface();
+    print_interface();
 
     return 0;
 }
