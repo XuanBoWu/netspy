@@ -1,16 +1,267 @@
-#include <pcap.h>           // libpcap 核心功能（必需）
-#include <stdio.h>          // 标准输入输出（printf、fprintf等）
-#include <stdlib.h>         // 标准库（exit、malloc等）
-#include <string.h>         // 字符串操作（strerror等）
-#include <arpa/inet.h>      // 网络地址转换（inet_ntoa等）
-#include <netinet/ip.h>     // IP 包头结构（struct iphdr）
-#include <netinet/tcp.h>    // TCP 包头结构（struct tcphdr）
-#include <netinet/udp.h>    // UDP 包头结构（struct udphdr）
-#include <netinet/if_ether.h> // 以太网帧结构（struct ethhdr）
-#include <sys/time.h>       // 时间结构（struct timeval）
-
+#include <pcap.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <arpa/inet.h>
+#include <netinet/ether.h>
+#include <netinet/udp.h>
+#include <ldns/ldns.h>
+#include <sys/types.h>
 #include "net.h"
+// #define BUFSIZ 512
+#define MAX_BUFFER_SIZE 1024
 
+
+/* 以太网头结构 */
+struct ethheader {
+    u_char  ether_dhost[6]; /* 目标MAC地址 */
+    u_char  ether_shost[6]; /* 源MAC地址 */
+    u_short ether_type;     /* 网络层协议类型 */
+};
+
+typedef struct {
+    char **ips;      // 存储 IP 字符串的指针数组
+    size_t count;    // 当前存储的 IP 数量
+    size_t capacity; // 当前数组容量
+} IPList;
+
+IPList* iplist_create() {
+    IPList *list = malloc(sizeof(IPList));
+    if (!list) return NULL;
+
+    list->capacity = 16; // 初始容量
+    list->count = 0;
+    list->ips = malloc(list->capacity * sizeof(char*));
+    if (!list->ips) {
+        free(list);
+        return NULL;
+    }
+    return list;
+}
+
+int iplist_append(IPList *list, const char *ip_str) {
+    // 扩容检查
+    if (list->count >= list->capacity) {
+        size_t new_cap = list->capacity * 2;
+        char **new_ips = realloc(list->ips, new_cap * sizeof(char*));
+        if (!new_ips) return -1; // 扩容失败
+        list->ips = new_ips;
+        list->capacity = new_cap;
+    }
+
+    // 深拷贝字符串
+    char *copy = strdup(ip_str);
+    if (!copy) return -1;
+
+    list->ips[list->count++] = copy;
+    return 0;
+}
+
+void process_and_free_iplist(IPList *list) {
+    if (!list) return;
+
+    // for (size_t i = 0; i < list->count; i++) {
+    //     printf("Stored IP: %s\n", list->ips[i]);
+    // }
+
+    // 释放每个字符串和数组
+    for (size_t i = 0; i < list->count; i++) {
+        free(list->ips[i]);
+    }
+    free(list->ips);
+    free(list);
+}
+
+char* get_process_by_port(int port) {
+    FILE *fp;
+    char command[128];
+    char buffer[128];
+    char *process = NULL;
+
+    // 构建lsof命令查询UDP端口
+    snprintf(command, sizeof(command), "lsof -i UDP:%d -Fc 2>/dev/null", port);
+    
+    if ((fp = popen(command, "r")) == NULL) {
+        return strdup("unknown");
+    }
+
+    // 解析输出
+    while (fgets(buffer, sizeof(buffer), fp) != NULL) {
+        if (buffer[0] == 'c') { // 'c' 开头表示进程名称
+            process = strdup(buffer + 1); // 跳过'c'字符
+            if (process) {
+                // 去除换行符
+                char *newline = strchr(process, '\n');
+                if (newline) *newline = '\0';
+            }
+            break;
+        }
+    }
+    pclose(fp);
+
+    return process ? process : strdup("unknown");
+}
+
+// 添加回调函数定义
+void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
+    struct ethheader *eth = (struct ethheader *)packet;
+
+    /* 只处理IPv4数据包（0x0800是以太网类型代码） */
+    if (ntohs(eth->ether_type) != 0x0800) return;
+
+    /* 解析IP头 */
+    struct ip *ip = (struct ip *)(packet + sizeof(struct ethheader));
+    int ip_header_len = ip->ip_hl * 4;  /* IP头长度（32位字转字节） */
+
+    /* 确保是UDP协议 */
+    if (ip->ip_p != IPPROTO_UDP) return;
+
+    /* 解析UDP头 */
+    struct udphdr *udp = (struct udphdr *)((char *)ip + ip_header_len);
+
+    /* 检查DNS端口（源或目的端口为53） */
+    if (ntohs(udp->uh_sport) != 53 && ntohs(udp->uh_dport) != 53) return;
+
+    /* 解析DNS头 */
+    const u_char *dns_data = (u_char*)udp + sizeof(struct udphdr);
+    size_t dns_data_len = ntohs(udp->uh_ulen) - sizeof(struct udphdr);
+
+    // 使用ldns解析DNS数据
+    ldns_pkt *dns_packet;
+    ldns_status status = ldns_wire2pkt(&dns_packet, dns_data, dns_data_len);
+
+    if (status != LDNS_STATUS_OK) {
+        fprintf(stderr, "ldns_wire2pkt failed: %s\n", ldns_get_errorstr_by_id(status));
+        return;
+    }
+
+    // 如果是请求包
+    if (ldns_pkt_qr(dns_packet) != 1) {
+        int port = ntohs(udp->uh_sport);
+        
+        char *process = get_process_by_port(port);
+        printf("请求的应用端口为：%d\n应用进程为：%s\n", port, process);
+        free(process); // 释放内存
+        
+        ldns_pkt_free(dns_packet);
+        return;
+    }
+
+    // 获取查询部分 (Question Section)
+    ldns_rr_list *questions = ldns_pkt_question(dns_packet);
+    char *domain_str;
+    if (questions) {
+        for (size_t i = 0; i < ldns_rr_list_rr_count(questions); i++) { // 使用 ldns_rr_list_rr_count
+            ldns_rr *question = ldns_rr_list_rr(questions, i);
+            ldns_rdf *domain = ldns_rr_owner(question); // 获取域名
+            if (domain) {
+                domain_str = ldns_rdf2str(domain);
+                // printf("Query Domain: %s\n", domain_str);
+                // free(domain_str);
+            }
+        }
+    }
+
+    IPList *ip_list = iplist_create();
+    if (!ip_list) {
+        fprintf(stderr, "Failed to create IP list\n");
+        return;
+    }
+
+    // 获取应答部分 (Answer Section)  只处理A记录
+    ldns_rr_list *answers = ldns_pkt_answer(dns_packet);
+    if (answers) {
+        for (size_t i = 0; i < ldns_rr_list_rr_count(answers); i++) {  // 使用 ldns_rr_list_rr_count
+            ldns_rr *answer = ldns_rr_list_rr(answers, i);
+
+            // 只处理A记录 (IPv4地址)
+            if (ldns_rr_get_type(answer) == LDNS_RR_TYPE_A) {
+                ldns_rdf *ip_rdf = ldns_rr_rdf(answer, 0); // 获取IP地址
+                if (ip_rdf) {
+                    struct in_addr addr;
+                    addr.s_addr = *(uint32_t*)ldns_rdf_data(ip_rdf); //直接从数据中取出
+                    char *convertedIP = inet_ntoa(addr);
+                    if (iplist_append(ip_list, convertedIP) != 0) {
+                        fprintf(stderr, "Failed to add IPv4 to list\n");
+                    }
+                }
+            } else if (ldns_rr_get_type(answer) == LDNS_RR_TYPE_AAAA){ //处理AAAA记录
+                ldns_rdf *ip_rdf = ldns_rr_rdf(answer, 0);
+                if(ip_rdf){
+                        // 直接从 ldns_rdf 数据中提取 IPv6 地址
+                    unsigned char *ipv6_data = ldns_rdf_data(ip_rdf);
+                    char ipv6_str[INET6_ADDRSTRLEN];
+
+                    if (inet_ntop(AF_INET6, ipv6_data, ipv6_str, INET6_ADDRSTRLEN) != NULL) {
+                        if (iplist_append(ip_list, ipv6_str) != 0) {
+                            fprintf(stderr, "Failed to add IPv6 to list\n");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 释放ldns_pkt
+    ldns_pkt_free(dns_packet);
+
+    /* 打印关键信息 */
+    printf("\n=== 捕获到DNS数据包（长度：%d 字节） ===\n", header->len);
+    printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), ntohs(udp->uh_sport));
+    printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), ntohs(udp->uh_dport));
+    printf("UDP总长度: %d 字节\n", ntohs(udp->uh_ulen));
+    printf("DNS数据长度: %d 字节\n", ntohs(udp->uh_ulen) - sizeof(struct udphdr));
+    printf("查询域名: %s\n", domain_str);
+    for (size_t i = 0; i < ip_list->count; i++) {
+        // printf("i = %zu\n", i);
+        printf("    IP %lu: %s\n", i+1, ip_list->ips[i]);
+    }
+
+    process_and_free_iplist(ip_list);
+
+}
+
+int cap_netinfo(char *dev){
+    pcap_t *handle; //pcap 会话句柄
+    char errbuf[PCAP_ERRBUF_SIZE]; // 错误信息缓冲
+    struct bpf_program fp; // 编译后的过滤器
+    char filter_exp[] = "udp port 53"; // 过滤表达式
+    bpf_u_int32 mask; // 捕获设备的网络掩码
+    bpf_u_int32 net; // 捕获设备的IP
+
+    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
+        fprintf(stderr, "Can't get netmask for device %s\n", dev);
+        net = 0;
+        mask = 0;
+    }
+    
+    handle = pcap_open_live(dev, BUFSIZ, 0, 500, errbuf);
+    if (handle == NULL) {
+        fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
+        return(2);
+    }
+
+    if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
+        fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
+	    return(2);
+    }
+    
+    if (pcap_setfilter(handle, &fp) == -1) {
+        fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
+	    return(2);
+    }
+
+    // 替换 pcap_next 相关代码
+    printf("Starting packet capture...\n");
+    int num_packets = -1; // -1 表示持续捕获，直到出错或中断
+    if (pcap_loop(handle, num_packets, packet_handler, NULL) == -1) {
+        fprintf(stderr, "Error in pcap_loop: %s\n", pcap_geterr(handle));
+        return(2);
+    }
+
+    pcap_close(handle);
+    return 0;
+}
 
 int print_interface(){
     char buf_err[PCAP_BUF_SIZE];
@@ -60,96 +311,4 @@ int print_interface(){
     pcap_freealldevs(intf);
     intf = NULL;
     return 0;
-}
-
-int cap_netinfo(char *dev){
-
-    char errbuf[PCAP_ERRBUF_SIZE];
-    bpf_u_int32 net, mask;                    // 网络地址和掩码
-
-    // 获取网络地址和掩码
-    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-        fprintf(stderr, "Error: %s\n", errbuf);
-        return 1;
-    }
-
-    // 将二进制地址转换为可读字符串
-    struct in_addr addr;
-    addr.s_addr = net;
-    printf("Network: %s\n", inet_ntoa(addr));
-
-    addr.s_addr = mask;
-    printf("Netmask: %s\n", inet_ntoa(addr));
-
-    return 0;
-}
-
-int cap_dns_info(char *target_dev) {
-    char errbuf[PCAP_BUF_SIZE];
-
-    bpf_u_int32 net, mask;                    // 网络地址和掩码
-
-    // 获取网络地址和掩码
-    if (pcap_lookupnet(target_dev, &net, &mask, errbuf) == -1) {
-        fprintf(stderr, "Error: %s\n", errbuf);
-        return 1;
-    }
-
-    pcap_t *handle = pcap_open_live(
-        target_dev,      // 接口名称
-        65535,           // 捕获完整数据包（snaplen = 65535）
-        1,               // 混杂模式（1=启用）
-        1000,             // 超时时间（毫秒）
-        errbuf           // 错误缓冲区
-    );
-
-    if (handle == NULL) {
-        fprintf(stderr, "Could not open device: %s\n", errbuf);
-        return 1;
-    }
-
-    struct bpf_program filter;
-    char filter_exp[] = "udp port 53";  // 过滤 HTTP 流量
-
-    // 编译过滤器规则
-    if (pcap_compile(handle, &filter, filter_exp, 0, net) == -1) {
-        fprintf(stderr, "Filter compile error: %s\n", pcap_geterr(handle));
-        pcap_close(handle);
-        return 1;
-    }
-
-    // 应用过滤器
-    if (pcap_setfilter(handle, &filter) == -1) {
-        fprintf(stderr, "Filter set error: %s\n", pcap_geterr(handle));
-        pcap_close(handle);
-        return 1;
-    }
-
-    // 释放过滤器资源
-    pcap_freecode(&filter);
-
-    // 定义回调函数（见第6步）
-    void packet_handler(u_char *user, const struct pcap_pkthdr *hdr, const u_char *bytes);
-
-    // 持续抓包（count=-1 表示无限循环）
-    pcap_loop(handle, -1, packet_handler, NULL);
-
-
-    return 0;
-}
-
-void packet_handler(u_char *user, const struct pcap_pkthdr *hdr, const u_char *bytes) {
-    // 跳过以太网头（14字节）
-    const u_char *ip_packet = bytes + 14;
-
-    // 解析 IPv4 头前 20 字节
-    uint8_t ip_hl = (ip_packet[0] & 0x0F) * 4;  // 计算 IP 头长度
-    uint32_t src_ip = *(uint32_t*)(ip_packet + 12); // 源 IP（偏移 12）
-    uint32_t dst_ip = *(uint32_t*)(ip_packet + 16); // 目标 IP（偏移 16）
-
-    struct in_addr addr;
-    addr.s_addr = src_ip;
-    printf("Source IP: %s\n", inet_ntoa(addr));
-    addr.s_addr = dst_ip;
-    printf("Dest IP: %s\n", inet_ntoa(addr));
 }

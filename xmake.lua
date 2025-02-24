@@ -1,13 +1,13 @@
 add_rules("mode.debug", "mode.release")
 
 
-add_requires("libpcap")
+add_requires("libpcap", "ldns")
 
 target("netspy")
     set_kind("binary")
     add_files("src/*.c")
     add_includedirs("include")
-    add_packages("libpcap")
+    add_packages("libpcap", "ldns")
 --
 -- If you want to known more usage about xmake, please see https://xmake.io
 --

@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <unistd.h>
+#include <getopt.h>
 #include "net.h"
 
 int main(int argc, char *argv[]){
@@ -22,8 +22,9 @@ int main(int argc, char *argv[]){
     }
 
     // print_interface();
-    // cap_netinfo(interface);
-    cap_dns_info(interface);
+    printf("main:\n");
+    cap_netinfo(interface);
+    // cap_dns_info(interface);
 
     return 0;
 }
