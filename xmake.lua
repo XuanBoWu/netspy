@@ -6,7 +6,6 @@ add_requires("libpcap", "ldns", "uthash")
 target("netspy")
     set_kind("binary")
     add_files("src/*.c")
-    add_includedirs("include")
     add_packages("libpcap", "ldns", "uthash")
 --
 -- If you want to known more usage about xmake, please see https://xmake.io
