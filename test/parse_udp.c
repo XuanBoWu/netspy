@@ -46,7 +46,7 @@ int main() {
         struct in_addr ip;
         uint8_t ip_bytes[4];
         for (int i = 0; i < 4; i++) {
-            if (sscanf(ip_part + 2*i, "%2hhx", &ip_bytes[i]) != 1) {
+            if (sscanf(ip_part + 2*i, "%2hhx", &ip_bytes[3-i]) != 1) {
                 fprintf(stderr, "Failed to parse IP: %s\n", ip_part);
                 break;
             }
