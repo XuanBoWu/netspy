@@ -1,14 +1,32 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
+#include <nids.h>
+#include "uthash.h"
+#include "inode.h"
 
 #define MAX_PROCESS_NAME 256
+
+struct inode_info {
+    struct tuple4 *addr;
+    unsigned long inode;
+    UT_hash_handle hh; 
+};
+
+struct hash_table {
+    char *port;
+    struct inode_info *value;
+    UT_hash_handle hh;
+};
 
 // 获取进程名称
 static int get_process_name(pid_t pid, char *name_buf, size_t buf_size) {
@@ -160,26 +178,124 @@ void print_help(const char *prog_name) {
     printf("  sudo %s $(ls -i /path/to/file | awk '{print $1}')\n", prog_name);
 }
 
+long port_inode(u_short port){
+    FILE *fp = fopen("/proc/net/udp", "r");
+    if (!fp) {
+        perror("Failed to open /proc/net/udp");
+        return 1;
+    }
+    
+    struct hash_table *set = NULL;
 
-
-int main(int argc, char *argv[]) {
-    if (argc != 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-        print_help(argv[0]);
-        return EXIT_FAILURE;
+    char line[512];
+    //跳过标题行
+    if (!fgets(line, sizeof(line), fp)) {
+        fclose(fp);
+        return 0;
     }
 
-    // inode 号校验转换逻辑
-    char *endptr;
-    errno = 0;
-    unsigned long inode = strtoul(argv[1], &endptr, 10);
-    
-    if (errno != 0 || *endptr != '\0' || inode == 0) {
-        fprintf(stderr, "Invalid inode: %s\n", argv[1]);
-        fprintf(stderr, "Please provide a valid positive integer\n");
-        return EXIT_FAILURE;
+    while (fgets(line, sizeof(line), fp)) {
+        struct inode_info *info = malloc(sizeof *info);
+         // 将行拆分为标记（字段）
+        char *fields[32];
+        int field_count = 0;
+        char *saveptr;
+        char *token = strtok_r(line, " \t\n", &saveptr);
+        while (token && field_count < 32) {
+            fields[field_count++] = token;
+            token = strtok_r(NULL, " \t\n", &saveptr);
+        }
+        if (field_count < 10) {
+            continue; // 跳过无效行
+        }
+
+        // 解析本地地址（字段[1]为“IP:端口”）
+        char *local_addr = fields[1];
+        char *rem_address = fields[2];
+        char *l_ip_part = strtok_r(local_addr, ":", &saveptr);
+        char *l_port_part = strtok_r(NULL, ":", &saveptr);
+        char *r_ip_part = strtok_r(rem_address, ":", &saveptr);
+        char *r_port_part = strtok_r(NULL, ":", &saveptr);
+        if (!l_ip_part || !l_port_part || strlen(l_ip_part) != 8 || strlen(l_port_part) != 4 ||
+            !r_ip_part || !r_port_part || strlen(r_ip_part) != 8 || strlen(r_port_part) != 4 ) {
+            fprintf(stderr, "Invalid local address format: %s\n", local_addr);
+            continue;
+        }
+
+        struct tuple4 *addr = malloc(sizeof(struct tuple4));
+        uint8_t ip_bytes[4];
+        for (int i = 0; i < 4; i++) {
+            // 转换进制的同时反转端序
+            if (sscanf(l_ip_part + 2*i, "%2hhx", &ip_bytes[3-i]) != 1) {
+                fprintf(stderr, "Failed to parse IP: %s\n", l_ip_part);
+                break;
+            }
+        }
+        // printf("%d.%d.%d.%d\n", ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
+        addr->saddr = *(u_int32_t*)ip_bytes;
+        char ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &addr->saddr, ip_str, sizeof(ip_str));
+
+        // 将端口从十六进制字符串转换为主机字节顺序
+        uint8_t port_bytes[2];
+        for (int i = 0; i < 2; i++) {
+            if (sscanf(l_port_part + 2*i, "%2hhx", &port_bytes[i]) != 1) {
+                fprintf(stderr, "Failed to parse port: %s\n", l_port_part);
+                break;
+            }
+        }
+        addr->source = *(uint16_t*)port_bytes;
+        port = ntohs(*(uint16_t*)port_bytes);
+
+        // 解析inode编号（第10个字段，索引9）
+        unsigned long inode = strtoul(fields[9], NULL, 10);
+
+        // 打印结果
+        printf("IP: %-15s Port: %-5d Inode: %lu\n", ip_str, port, inode);
+        struct hash_table *h = (struct hash_table*)malloc(sizeof(struct hash_table));
+        h->port = l_port_part;
+        info->inode = inode;
+        info->addr = addr;
+        h->value = info;
+        HASH_ADD_STR(set, port, h);
+
     }
-    // ino_t 为 inode 类型
-    find_process_by_inode((ino_t)inode);
-    
-    return EXIT_SUCCESS;
+
+    char str_port[8];
+    sprintf(str_port, "%d", port);
+    struct inode_info *result;
+    HASH_FIND_STR(set, str_port, result);
+    if (result) {
+        return result->inode;
+    }
+
+    return -1;
 }
+
+// int main(int argc, char *argv[]) {
+
+//     if(1) {
+//         port_inode(53);
+//         return 0;
+//     }
+
+//     if (argc != 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+//         print_help(argv[0]);
+//         return EXIT_FAILURE;
+//     }
+
+//     // inode 号校验转换逻辑
+//     char *endptr;
+//     errno = 0;
+//     unsigned long inode = strtoul(argv[1], &endptr, 10);
+    
+//     if (errno != 0 || *endptr != '\0' || inode == 0) {
+//         fprintf(stderr, "Invalid inode: %s\n", argv[1]);
+//         fprintf(stderr, "Please provide a valid positive integer\n");
+//         return EXIT_FAILURE;
+//     }
+//     // ino_t 为 inode 类型
+//     find_process_by_inode((ino_t)inode);
+    
+//     return EXIT_SUCCESS;
+// }
