@@ -66,6 +66,14 @@ void process_and_free_iplist(IPList *list) {
 
 void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
  
+    // 判断是否为DNS
+    if (addr->source != 53 && addr->dest != 53) {
+        /* 打印关键信息 */
+        printf("\n=== 捕获到UDP数据包（长度：%d 字节） ===\n", len);
+        printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), addr->source);
+        printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), addr->dest);
+        return;
+    }
 
     /* 解析DNS头 */
     const u_char *dns_data = (u_char *)buf;
@@ -151,8 +159,8 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
 
     /* 打印关键信息 */
     printf("\n=== 捕获到DNS数据包（长度：%d 字节） ===\n", len);
-    printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), ntohs(addr->saddr));
-    printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), ntohs(addr->daddr));
+    printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), addr->source);
+    printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), addr->dest);
     // printf("UDP总长度: %d 字节\n", ntohs(udp->uh_ulen));
     // printf("DNS数据长度: %lu 字节\n", ntohs(udp->uh_ulen) - sizeof(struct udphdr));
     printf("查询域名: %s\n", domain_str);
