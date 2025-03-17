@@ -1,8 +1,22 @@
+/**
+net.h
+ */
 #include <stdio.h>
-#include <pcap.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <arpa/inet.h>
+#include <netinet/ether.h>
+#include <netinet/udp.h>
 
-int print_interface(void);
+// 存储本地IP的结构体（使用struct in_addr存储二进制格式）
+struct local_ip {
+    struct in_addr addr;  
+    struct local_ip *next;
+};
 
-int cap_netinfo(char *dev);
+extern struct local_ip *local_ips;
 
-int cap_dns_info(char *target_dev);
+void refresh_local_ips();
+
+int is_local_ip(struct in_addr addr);

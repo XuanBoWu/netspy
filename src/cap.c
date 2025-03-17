@@ -1,3 +1,4 @@
+#include <ifaddrs.h>
 #include <stdio.h>
 #include <string.h>
 #include <arpa/inet.h>
@@ -5,6 +6,7 @@
 #include <nids.h>
 #include <sys/types.h>
 #include "inode.h"
+#include "net.h"
 
 void tcp_callback(struct tcp_stream *ts, void **param) {
     printf("TCP\n");
@@ -67,6 +69,17 @@ void process_and_free_iplist(IPList *list) {
 }
 
 void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
+    struct in_addr target_addr;
+    target_addr.s_addr = addr->saddr; 
+    printf("源地址为：%s", inet_ntoa(ip->ip_src));
+    if (is_local_ip(target_addr)){
+        printf(" 是本地地址\n");
+    } else {
+        printf(" 不是本地地址\n");
+    }
+
+
+
     char *process_name = malloc(256);
     strcpy(process_name, "unknown");
 
