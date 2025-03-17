@@ -3,7 +3,6 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdint.h>
-#include <ctype.h>
 
 int main() {
     FILE *fp = fopen("/proc/net/udp", "r");

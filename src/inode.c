@@ -9,7 +9,6 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <errno.h>
 #include <limits.h>
 #include <pthread.h>
 #include <nids.h>
