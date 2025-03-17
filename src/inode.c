@@ -179,7 +179,6 @@ char* find_process_by_inode(ino_t target_inode) {
         if ((process_name = process_pid(pid, target_inode)) != NULL){
             break;
         }
-        // printf("TAG:process_name: %s\n", process_name);
     }
     closedir(proc_dir);
 
@@ -254,7 +253,7 @@ long port_inode(u_short port_num){
                 break;
             }
         }
-        // printf("%d.%d.%d.%d\n", ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
+        
         addr->saddr = *(u_int32_t*)ip_bytes;
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &addr->saddr, ip_str, sizeof(ip_str));
@@ -268,14 +267,12 @@ long port_inode(u_short port_num){
             }
         }
         addr->source = *(uint16_t*)port_bytes;
-        printf("port_bytes: %d \nl_port_part: %s\n", (int)*port_bytes, l_port_part);
-        printf("addr->source: %d\n", addr->source);
 
         // 解析inode编号（第10个字段，索引9）
         unsigned long inode = strtoul(fields[9], NULL, 10);
 
         // 打印结果
-        printf("IP: %-15s Port: %d Inode: %lu\n", ip_str, addr->source, inode);
+        // printf("IP: %-15s Port: %d Inode: %lu\n", ip_str, addr->source, inode);
         struct hash_table *h = (struct hash_table*)malloc(sizeof(struct hash_table));
         h->port = (int)addr->source;
         info->inode = inode;
@@ -287,12 +284,12 @@ long port_inode(u_short port_num){
 
     struct hash_table *s;
     // 遍历哈希表内容
-    printf("HASH表内容：\n");
-    printf("查询Port：%d\n", port_num);
-    for(s=set; s != NULL; s=s->hh.next) {
-        char ip_str[INET_ADDRSTRLEN];
-        printf("Key_Port: %d IP: %s:%d inode: %lu\n", s->port, inet_ntop(AF_INET,&s->value->addr->saddr, ip_str, sizeof(ip_str)), s->value->addr->source, s->value->inode);
-    }
+    // printf("HASH表内容：\n");
+    // printf("查询Port：%d\n", port_num);
+    // for(s=set; s != NULL; s=s->hh.next) {
+    //     char ip_str[INET_ADDRSTRLEN];
+    //     printf("Key_Port: %d IP: %s:%d inode: %lu\n", s->port, inet_ntop(AF_INET,&s->value->addr->saddr, ip_str, sizeof(ip_str)), s->value->addr->source, s->value->inode);
+    // }
 
     // char str_port[8];
     // sprintf(str_port, "%d", port_num);
@@ -300,7 +297,7 @@ long port_inode(u_short port_num){
     int port_key = (int)port_num;
     HASH_FIND_INT(set, &port_key, result);
     if (result) {
-        printf("inode已匹配！\n");
+        // printf("inode已匹配！\n");
         return result->value->inode;
     }
 
