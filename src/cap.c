@@ -69,23 +69,32 @@ void process_and_free_iplist(IPList *list) {
 }
 
 void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
-    struct in_addr target_addr;
-    target_addr.s_addr = addr->saddr; 
-    printf("源地址为：%s", inet_ntoa(ip->ip_src));
-    if (is_local_ip(target_addr)){
-        printf(" 是本地地址\n");
-    } else {
-        printf(" 不是本地地址\n");
-    }
-
-
+    struct in_addr target_addr_s;
+    struct in_addr target_addr_d;
+    target_addr_s.s_addr = addr->saddr;
+    target_addr_d.s_addr = addr->daddr; 
+    
 
     char *process_name = malloc(256);
     strcpy(process_name, "unknown");
+    long inode = 0;
 
-    long inode = port_inode(addr->source);
+    printf("源地址为：%s", inet_ntoa(ip->ip_src));
+    if (is_local_ip(target_addr_s)){
+        printf("发出UDP数据包\n");
+        inode = port_inode(addr->source);
+
+    } else if(is_local_ip(target_addr_s)){
+        printf("接收UDP数据包\n");
+        inode = port_inode(addr->dest);
+    } else {
+        printf("不是本地发出或接收的数据包\n");
+    }
+
     process_name = find_process_by_inode(inode);
 
+
+    
     // 判断是否为DNS
     if (addr->source != 53 && addr->dest != 53) {
         /* 打印关键信息 */
@@ -111,22 +120,6 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
         return;
     }
 
-    // 如果是请求包
-    if (ldns_pkt_qr(dns_packet) != 1) {
-        // uint16_t port = ntohs(udp->uh_sport);
-        
-        // char *process = get_process_by_port(port);
-        // printf("请求的应用端口为：%d\n应用进程为：%s\n", port, process);
-        // free(process); // 释放内存
-        /* 打印关键信息 */
-        printf("\n=== 捕获到DNS请求包（长度：%d 字节） ===\n", len);
-        printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), addr->source);
-        printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), addr->dest);
-        printf("inode: %li\n", inode);
-        printf("process_name: %s\n", process_name);
-        ldns_pkt_free(dns_packet);
-        return;
-    }
 
     // 获取查询部分 (Question Section)
     ldns_rr_list *questions = ldns_pkt_question(dns_packet);
@@ -141,6 +134,24 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
                 // free(domain_str);
             }
         }
+    }
+
+        // 如果是请求包
+    if (ldns_pkt_qr(dns_packet) != 1) {
+        // uint16_t port = ntohs(udp->uh_sport);
+        
+        // char *process = get_process_by_port(port);
+        // printf("请求的应用端口为：%d\n应用进程为：%s\n", port, process);
+        // free(process); // 释放内存
+        /* 打印关键信息 */
+        printf("\n=== 捕获到DNS请求包（长度：%d 字节） ===\n", len);
+        printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), addr->source);
+        printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), addr->dest);
+        printf("查询域名: %s\n", domain_str);
+        printf("inode: %li\n", inode);
+        printf("process_name: %s\n", process_name);
+        ldns_pkt_free(dns_packet);
+        return;
     }
 
     IPList *ip_list = iplist_create();
