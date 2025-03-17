@@ -1,3 +1,5 @@
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +25,7 @@ struct inode_info {
 };
 
 struct hash_table {
-    char *port;
+    int port;
     struct inode_info *value;
     UT_hash_handle hh;
 };
@@ -84,12 +86,12 @@ static int get_process_name(pid_t pid, char *name_buf, size_t buf_size) {
 }
 
 // 处理单个进程的 /proc/<PID>/fd 目录
-static void process_pid(pid_t pid, ino_t target_inode) {
+static char* process_pid(pid_t pid, ino_t target_inode) {
     char fd_path[PATH_MAX];
     snprintf(fd_path, sizeof(fd_path), "/proc/%d/fd", pid);
 
     DIR *fd_dir = opendir(fd_path);
-    if (!fd_dir) return;
+    if (!fd_dir) return NULL;
 
     struct dirent *fd_entry;
     int found = 0;
@@ -114,12 +116,22 @@ static void process_pid(pid_t pid, ino_t target_inode) {
     closedir(fd_dir);
 
     if (found) {
-        char process_name[MAX_PROCESS_NAME] = "unknown";
-        get_process_name(pid, process_name, sizeof(process_name));
-        
+        char *process_name = malloc(MAX_PROCESS_NAME);
+        if (process_name == NULL) {
+            perror("malloc failed");
+            return NULL;
+        }
+    
+
+        if (get_process_name(pid, process_name, MAX_PROCESS_NAME) != 0) {
+            free(process_name);
+            return NULL;
+        }
         printf("Process: %-16s PID: %-6d FD: %-4s Inode: %lu\n",
               process_name, pid, fd_entry->d_name, (unsigned long)target_inode);
+        return process_name;
     }
+    return NULL;
 }
 
 // 处理网络 Socket 文件
@@ -141,12 +153,19 @@ static void process_net_file(const char *path, ino_t target_inode) {
 }
 
 // 主查询函数
-void find_process_by_inode(ino_t target_inode) {
+char* find_process_by_inode(ino_t target_inode) {
+
     DIR *proc_dir = opendir("/proc");
     if (!proc_dir) {
         perror("opendir /proc failed");
-        return;
+        return NULL;
     }
+
+    char *process_name = malloc(MAX_PROCESS_NAME);
+    if (process_name == NULL) {
+        printf("内存分配失败\n");
+    }
+    strcpy(process_name, "unknown");
 
     struct dirent *proc_entry;
     while ((proc_entry = readdir(proc_dir)) != NULL) {
@@ -158,7 +177,10 @@ void find_process_by_inode(ino_t target_inode) {
         if (*endptr != '\0' || pid <= 0)
             continue;
 
-        process_pid(pid, target_inode);
+        if ((process_name = process_pid(pid, target_inode)) != NULL){
+            break;
+        }
+        // printf("TAG:process_name: %s\n", process_name);
     }
     closedir(proc_dir);
 
@@ -166,6 +188,8 @@ void find_process_by_inode(ino_t target_inode) {
     process_net_file("/proc/net/udp", target_inode);
     process_net_file("/proc/net/raw", target_inode);
     process_net_file("/proc/net/unix", target_inode);
+
+    return process_name;
 }
 
 void print_help(const char *prog_name) {
@@ -178,7 +202,7 @@ void print_help(const char *prog_name) {
     printf("  sudo %s $(ls -i /path/to/file | awk '{print $1}')\n", prog_name);
 }
 
-long port_inode(u_short port){
+long port_inode(u_short port_num){
     FILE *fp = fopen("/proc/net/udp", "r");
     if (!fp) {
         perror("Failed to open /proc/net/udp");
@@ -239,34 +263,46 @@ long port_inode(u_short port){
         // 将端口从十六进制字符串转换为主机字节顺序
         uint8_t port_bytes[2];
         for (int i = 0; i < 2; i++) {
-            if (sscanf(l_port_part + 2*i, "%2hhx", &port_bytes[i]) != 1) {
+            if (sscanf(l_port_part + 2*i, "%2hhx", &port_bytes[1-i]) != 1) {
                 fprintf(stderr, "Failed to parse port: %s\n", l_port_part);
                 break;
             }
         }
         addr->source = *(uint16_t*)port_bytes;
-        port = ntohs(*(uint16_t*)port_bytes);
+        printf("port_bytes: %d \nl_port_part: %s\n", (int)*port_bytes, l_port_part);
+        printf("addr->source: %d\n", addr->source);
 
         // 解析inode编号（第10个字段，索引9）
         unsigned long inode = strtoul(fields[9], NULL, 10);
 
         // 打印结果
-        printf("IP: %-15s Port: %-5d Inode: %lu\n", ip_str, port, inode);
+        printf("IP: %-15s Port: %d Inode: %lu\n", ip_str, addr->source, inode);
         struct hash_table *h = (struct hash_table*)malloc(sizeof(struct hash_table));
-        h->port = l_port_part;
+        h->port = (int)addr->source;
         info->inode = inode;
         info->addr = addr;
         h->value = info;
-        HASH_ADD_STR(set, port, h);
+        HASH_ADD_INT(set, port, h);
 
     }
 
-    char str_port[8];
-    sprintf(str_port, "%d", port);
-    struct inode_info *result;
-    HASH_FIND_STR(set, str_port, result);
+    struct hash_table *s;
+    // 遍历哈希表内容
+    printf("HASH表内容：\n");
+    printf("查询Port：%d\n", port_num);
+    for(s=set; s != NULL; s=s->hh.next) {
+        char ip_str[INET_ADDRSTRLEN];
+        printf("Key_Port: %d IP: %s:%d inode: %lu\n", s->port, inet_ntop(AF_INET,&s->value->addr->saddr, ip_str, sizeof(ip_str)), s->value->addr->source, s->value->inode);
+    }
+
+    // char str_port[8];
+    // sprintf(str_port, "%d", port_num);
+    struct hash_table *result;
+    int port_key = (int)port_num;
+    HASH_FIND_INT(set, &port_key, result);
     if (result) {
-        return result->inode;
+        printf("inode已匹配！\n");
+        return result->value->inode;
     }
 
     return -1;

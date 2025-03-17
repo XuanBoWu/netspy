@@ -15,3 +15,4 @@
 
 
 long port_inode(u_short port);
+char* find_process_by_inode(ino_t target_inode);

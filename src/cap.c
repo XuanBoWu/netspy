@@ -67,8 +67,12 @@ void process_and_free_iplist(IPList *list) {
 }
 
 void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
-    
+    char *process_name = malloc(256);
+    strcpy(process_name, "unknown");
+
     long inode = port_inode(addr->source);
+    process_name = find_process_by_inode(inode);
+
     // 判断是否为DNS
     if (addr->source != 53 && addr->dest != 53) {
         /* 打印关键信息 */
@@ -76,6 +80,7 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
         printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), addr->source);
         printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), addr->dest);
         printf("inode: %li\n", inode);
+        printf("process_name: %s\n", process_name);
         
         return;
     }
@@ -100,7 +105,12 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
         // char *process = get_process_by_port(port);
         // printf("请求的应用端口为：%d\n应用进程为：%s\n", port, process);
         // free(process); // 释放内存
-        
+        /* 打印关键信息 */
+        printf("\n=== 捕获到DNS请求包（长度：%d 字节） ===\n", len);
+        printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), addr->source);
+        printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), addr->dest);
+        printf("inode: %li\n", inode);
+        printf("process_name: %s\n", process_name);
         ldns_pkt_free(dns_packet);
         return;
     }
@@ -163,10 +173,11 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     ldns_pkt_free(dns_packet);
 
     /* 打印关键信息 */
-    printf("\n=== 捕获到DNS数据包（长度：%d 字节） ===\n", len);
+    printf("\n=== 捕获到DNS响应包（长度：%d 字节） ===\n", len);
     printf("源IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_src), addr->source);
     printf("目的IP: %-15s 端口: %d\n", inet_ntoa(ip->ip_dst), addr->dest);
     printf("inode: %li\n", inode);
+    printf("process_name: %s\n", process_name);
     // printf("UDP总长度: %d 字节\n", ntohs(udp->uh_ulen));
     // printf("DNS数据长度: %lu 字节\n", ntohs(udp->uh_ulen) - sizeof(struct udphdr));
     printf("查询域名: %s\n", domain_str);
