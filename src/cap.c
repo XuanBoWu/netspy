@@ -84,7 +84,7 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
         printf("发出UDP数据包\n");
         inode = port_inode(addr->source);
 
-    } else if(is_local_ip(target_addr_s)){
+    } else if(is_local_ip(target_addr_d)){
         printf("接收UDP数据包\n");
         inode = port_inode(addr->dest);
     } else {
