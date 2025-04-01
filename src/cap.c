@@ -8,13 +8,6 @@
 #include "inode.h"
 #include "net.h"
 
-void tcp_callback(struct tcp_stream *ts, void **param) {
-    printf("TCP\n");
-    if (ts->nids_state == NIDS_DATA) {
-        printf("TCP Data: %.*s\n", ts->server.count_new, ts->server.data);
-    }
-}
-
 typedef struct {
     char **ips;      // 存储 IP 字符串的指针数组
     size_t count;    // 当前存储的 IP 数量
@@ -68,11 +61,105 @@ void process_and_free_iplist(IPList *list) {
     free(list);
 }
 
+void print_udp_info(struct tuple4 *addr, char *buf, int len, struct ip *ip){
+    // ==================== 打印四元组信息 ====================
+    printf("\n============ UDP 数据包信息 ============\n");
+    
+    // 1. 转换网络字节序到主机字节序
+    struct in_addr src_ip, dst_ip;
+    src_ip.s_addr = addr->saddr;
+    dst_ip.s_addr = addr->daddr;
+    u_short src_port = addr->source;
+    u_short dst_port = addr->dest;
+    
+    // 2. 打印连接四元组
+    printf("[四元组信息]\n");
+    printf("源IP: %-15s 源端口: %-5d\n", inet_ntoa(src_ip), src_port);
+    printf("目的IP: %-15s 目的端口: %-5d\n", inet_ntoa(dst_ip), dst_port);
+    
+    // ==================== 打印IP头信息 ====================
+    printf("\n[IP头信息]\n");
+    printf("版本: IPV%d\n", ip->ip_v);  // 4或6
+    printf("头长度: %d 字节\n", ip->ip_hl * 4);  // 头长度以4字节为单位
+    printf("服务类型: 0x%02x\n", ip->ip_tos);
+    printf("总长度: %d 字节\n", ntohs(ip->ip_len));
+    printf("ID: 0x%04x\n", ntohs(ip->ip_id));
+    printf("分片偏移: 0x%04x\n", ntohs(ip->ip_off) & 0x1FFF);
+    printf("TTL: %d\n", ip->ip_ttl);
+    printf("协议: %d (1=ICMP, 6=TCP, 17=UDP)\n", ip->ip_p);
+    printf("校验和: 0x%04x\n", ntohs(ip->ip_sum));
+    
+    // 打印实际IP地址（可能与tuple4重复，但用于验证）
+    struct in_addr ip_src, ip_dst;
+    ip_src.s_addr = ip->ip_src.s_addr;
+    ip_dst.s_addr = ip->ip_dst.s_addr;
+    printf("IP头-源地址: %s\n", inet_ntoa(ip_src));
+    printf("IP头-目的地址: %s\n", inet_ntoa(ip_dst));
+    
+    // ==================== 数据信息 ====================
+    printf("\n[数据信息]\n");
+    printf("Payload长度: %d 字节\n", len);
+    printf("首16字节内容: ");
+    for(int i=0; i<(len>16?16:len); i++) {
+        printf("%02x ", (unsigned char)buf[i]);
+    }
+    printf("\n=========================================\n");
+}
+
 void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
+    // debug 打印数据包完整信息
+    print_udp_info(addr, buf, len, ip);
+    // IP协议 解析
+
+    // 获取数据包 IP信息，nids已转换主机序，不需要转换
+    // 获取源IP和目的IP的二进制形式
+    struct in_addr src_ip, dst_ip;
+    src_ip.s_addr = addr->saddr;
+    dst_ip.s_addr = addr->daddr;
+    
+    //获取源IP和目的IP的字符串形式
+    // 分别获取并保存IP字符串
+    char src_ip_str[16]; // 足够存储IPv4地址的字符串
+    char dst_ip_str[16];
+    strcpy(src_ip_str, inet_ntoa(src_ip));
+    strcpy(dst_ip_str, inet_ntoa(dst_ip));
+
+    // udp 协议解析
+    // 获取 端口信息，nids已转换主机序，不需要转换，
+    u_short src_port = addr->source;
+    u_short dst_port = addr->dest;
+
+    // 获取了IP和端口既可以获取 inode 号和进程信息
+
+    //首先判断数据包传输方向,传入源IP判断是发出数据包还是接受数据包
+    u_short process_port = 0; // 初始化进程端口
+    int pack_d = packet_direction(src_ip, dst_ip); // 获取数据包传输方向
+    printf("数据包传输方向：%d\n", pack_d);
+    if (pack_d == 0){
+        // 既不是传入也不是发出 不解析
+        return;
+    } else if (pack_d == 1) {
+        // 向外发出数据包，源端口为进程端口
+        process_port = src_port;
+    } else if (pack_d == 2) {
+        // 向内接受数据包， 目标端口为进程端口
+        process_port = dst_port;
+    } else if (pack_d == 3) {
+        // 内部传输数据包, 进程端口定义为源端口
+        process_port = src_port;
+    }
+    printf("##################################\n");
+    printf("%s:%u --> %s:%u\n", src_ip_str, src_port, dst_ip_str, dst_port);
+    printf("Process Port: %u\n", process_port);
+    printf("##################################\n");
+    // dns 协议解析
+
+    return;
+
     struct in_addr target_addr_s;
     struct in_addr target_addr_d;
     target_addr_s.s_addr = addr->saddr;
-    target_addr_d.s_addr = addr->daddr; 
+    target_addr_d.s_addr = addr->daddr;
     
 
     char *process_name = malloc(256);
@@ -212,6 +299,13 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
 
     process_and_free_iplist(ip_list);
 
+}
+
+void tcp_callback(struct tcp_stream *ts, void **param) {
+    printf("TCP\n");
+    if (ts->nids_state == NIDS_DATA) {
+        printf("TCP Data: %.*s\n", ts->server.count_new, ts->server.data);
+    }
 }
 
 int net_cap(){

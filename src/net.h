@@ -20,3 +20,5 @@ extern struct local_ip *local_ips;
 void refresh_local_ips();
 
 int is_local_ip(struct in_addr addr);
+
+int packet_direction(struct in_addr src_ip, struct in_addr dst_ip);
