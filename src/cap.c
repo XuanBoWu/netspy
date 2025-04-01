@@ -116,7 +116,7 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     struct in_addr src_ip, dst_ip;
     src_ip.s_addr = addr->saddr;
     dst_ip.s_addr = addr->daddr;
-    
+
     //获取源IP和目的IP的字符串形式
     // 分别获取并保存IP字符串
     char src_ip_str[16]; // 足够存储IPv4地址的字符串
@@ -135,6 +135,8 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     u_short process_port = 0; // 初始化进程端口
     int pack_d = packet_direction(src_ip, dst_ip); // 获取数据包传输方向
     printf("数据包传输方向：%d\n", pack_d);
+
+    // 根据传输方向判断进程端口，并存储
     if (pack_d == 0){
         // 既不是传入也不是发出 不解析
         return;
@@ -148,10 +150,22 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
         // 内部传输数据包, 进程端口定义为源端口
         process_port = src_port;
     }
+
+    // 初始化进程名字符串
+    char *process_name = malloc(256);
+    strcpy(process_name, "unknown");
+    
+    long inode = 0; // 初始化 inode 号
+    inode = port_inode(process_port); // 依据端口获取inode号
+    process_name = find_process_by_inode(inode); // 依据inode号获取进程名
+
     printf("##################################\n");
     printf("%s:%u --> %s:%u\n", src_ip_str, src_port, dst_ip_str, dst_port);
     printf("Process Port: %u\n", process_port);
+    printf("Process Inode: %li\n", inode);
+    printf("Process Name: %s\n", process_name);
     printf("##################################\n");
+
     // dns 协议解析
 
     return;
@@ -162,9 +176,9 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     target_addr_d.s_addr = addr->daddr;
     
 
-    char *process_name = malloc(256);
-    strcpy(process_name, "unknown");
-    long inode = 0;
+    // char *process_name = malloc(256);
+    // strcpy(process_name, "unknown");
+    // long inode = 0;
 
     printf("源地址为：%s", inet_ntoa(ip->ip_src));
     if (is_local_ip(target_addr_s)){
