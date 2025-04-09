@@ -1,3 +1,4 @@
+#pragma once
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,12 @@
 #include <nids.h>
 #include "uthash.h"
 
+#define MAX_PROCESS_NAME 256
+
+typedef struct {
+    pid_t pid;
+    char* process_name;
+} process_info;
 
 long port_inode(u_short port);
-char* find_process_by_inode(ino_t target_inode);
+void *  find_process_by_inode(ino_t target_inode);

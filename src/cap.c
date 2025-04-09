@@ -108,7 +108,7 @@ void print_udp_info(struct tuple4 *addr, char *buf, int len, struct ip *ip){
 
 void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     // debug 打印数据包完整信息
-    print_udp_info(addr, buf, len, ip);
+    // print_udp_info(addr, buf, len, ip);
     // IP协议 解析
 
     // 获取数据包 IP信息，nids已转换主机序，不需要转换
@@ -340,7 +340,7 @@ int net_cap(){
     return 0;
 }
 
-int main(){
-    net_cap();
-    return 0;
-}
+// int main(){
+//     net_cap();
+//     return 0;
+// }

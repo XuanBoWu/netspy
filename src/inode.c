@@ -15,12 +15,11 @@
 #include "uthash.h"
 #include "inode.h"
 
-#define MAX_PROCESS_NAME 256
 
 struct inode_info {
     struct tuple4 *addr;
     unsigned long inode;
-    UT_hash_handle hh; 
+    UT_hash_handle hh;
 };
 
 struct hash_table {
@@ -126,68 +125,51 @@ static char* process_pid(pid_t pid, ino_t target_inode) {
             free(process_name);
             return NULL;
         }
-        printf("Process: %-16s PID: %-6d FD: %-4s Inode: %lu\n",
-              process_name, pid, fd_entry->d_name, (unsigned long)target_inode);
+        // 调试时才打印
+        // printf("Process: %-16s PID: %-6d FD: %-4s Inode: %lu\n",
+        //       process_name, pid, fd_entry->d_name, (unsigned long)target_inode);
         return process_name;
     }
     return NULL;
 }
 
-// 处理网络 Socket 文件
-static void process_net_file(const char *path, ino_t target_inode) {
-    FILE *file = fopen(path, "r");
-    if (!file) return;
-
-    char line[1024];
-    while (fgets(line, sizeof(line), file)) {
-        unsigned long inode;
-        if (sscanf(line, "%*d: %*x %*x %*x %*x %*x %*x %*x %*x %*x %lu", 
-                  &inode) == 1) {
-            if (inode == target_inode) {
-                printf("Network: %-47s Inode: %lu\n", path, inode);
-            }
-        }
-    }
-    fclose(file);
-}
-
 // 主查询函数
-char* find_process_by_inode(ino_t target_inode) {
+void * find_process_by_inode(ino_t target_inode) {
 
     DIR *proc_dir = opendir("/proc");
     if (!proc_dir) {
         perror("opendir /proc failed");
         return NULL;
     }
+    
+    process_info* pi = malloc(sizeof(process_info));
 
-    char *process_name = malloc(MAX_PROCESS_NAME);
-    if (process_name == NULL) {
-        printf("内存分配失败\n");
+    if (!pi) {
+        perror("malloc failed");
+        closedir(proc_dir);
+        return NULL;
     }
-    strcpy(process_name, "unknown");
+    
+    pi->process_name = strdup("unknown");
 
     struct dirent *proc_entry;
+    
     while ((proc_entry = readdir(proc_dir)) != NULL) {
         if (proc_entry->d_type != DT_DIR)
             continue;
 
         char *endptr;
-        pid_t pid = (pid_t)strtol(proc_entry->d_name, &endptr, 10);
-        if (*endptr != '\0' || pid <= 0)
+        pi->pid = (pid_t)strtol(proc_entry->d_name, &endptr, 10);
+        if (*endptr != '\0' || pi->pid <= 0)
             continue;
 
-        if ((process_name = process_pid(pid, target_inode)) != NULL){
+        if ((pi->process_name = process_pid(pi->pid, target_inode)) != NULL){
             break;
         }
     }
     closedir(proc_dir);
 
-    process_net_file("/proc/net/tcp", target_inode);
-    process_net_file("/proc/net/udp", target_inode);
-    process_net_file("/proc/net/raw", target_inode);
-    process_net_file("/proc/net/unix", target_inode);
-
-    return process_name;
+    return pi;
 }
 
 void print_help(const char *prog_name) {
@@ -304,30 +286,3 @@ long port_inode(u_short port_num){
     return -1;
 }
 
-// int main(int argc, char *argv[]) {
-
-//     if(1) {
-//         port_inode(53);
-//         return 0;
-//     }
-
-//     if (argc != 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-//         print_help(argv[0]);
-//         return EXIT_FAILURE;
-//     }
-
-//     // inode 号校验转换逻辑
-//     char *endptr;
-//     errno = 0;
-//     unsigned long inode = strtoul(argv[1], &endptr, 10);
-    
-//     if (errno != 0 || *endptr != '\0' || inode == 0) {
-//         fprintf(stderr, "Invalid inode: %s\n", argv[1]);
-//         fprintf(stderr, "Please provide a valid positive integer\n");
-//         return EXIT_FAILURE;
-//     }
-//     // ino_t 为 inode 类型
-//     find_process_by_inode((ino_t)inode);
-    
-//     return EXIT_SUCCESS;
-// }
