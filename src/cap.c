@@ -156,8 +156,8 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     strcpy(process_name, "unknown");
     
     long inode = 0; // 初始化 inode 号
-    inode = port_inode(process_port); // 依据端口获取inode号
-    process_name = find_process_by_inode(inode); // 依据inode号获取进程名
+    // inode = port_inode(process_port); // 依据端口获取inode号
+    // process_name = find_process_by_inode(inode); // 依据inode号获取进程名
 
     printf("##################################\n");
     printf("%s:%u --> %s:%u\n", src_ip_str, src_port, dst_ip_str, dst_port);

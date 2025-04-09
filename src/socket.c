@@ -171,6 +171,7 @@ int get_socket(char * socket_fp, Queue* queue){
         }
 
     }
+    fclose(fp);
     return 0;
 
 }
