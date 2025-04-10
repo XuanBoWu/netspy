@@ -19,3 +19,4 @@ typedef struct {
 } socket_info;
 
 void* refresh_socket(void * data);
+socket_info* find_by_local_port(Queue* queue, u_short port);

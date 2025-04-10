@@ -21,5 +21,4 @@ typedef struct {
     char* process_name;
 } process_info;
 
-long port_inode(u_short port);
 void *  find_process_by_inode(ino_t target_inode);

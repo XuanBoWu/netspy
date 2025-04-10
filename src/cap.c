@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include "inode.h"
 #include "net.h"
+#include "hash.h"
+#include "socket.h"
 
 typedef struct {
     char **ips;      // 存储 IP 字符串的指针数组
@@ -152,17 +154,24 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     }
 
     // 初始化进程名字符串
+    ino_t inode = 0;
+    pid_t pid = 0;
     char *process_name = malloc(256);
-    strcpy(process_name, "unknown");
+    socket_info* info = NULL;
+    if ((info = find_by_local_port(queue, process_port))){
+        pid = info->pid;
+        process_name = info->process_name;
+        inode = info->inode;
+    } else {
+        strcpy(process_name, "unknown");
+    }
     
-    long inode = 0; // 初始化 inode 号
-    // inode = port_inode(process_port); // 依据端口获取inode号
-    // process_name = find_process_by_inode(inode); // 依据inode号获取进程名
 
     printf("##################################\n");
     printf("%s:%u --> %s:%u\n", src_ip_str, src_port, dst_ip_str, dst_port);
     printf("Process Port: %u\n", process_port);
-    printf("Process Inode: %li\n", inode);
+    printf("Inode: %lu\n", inode);
+    printf("PID: %d\n", pid);
     printf("Process Name: %s\n", process_name);
     printf("##################################\n");
 
@@ -183,11 +192,11 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     printf("源地址为：%s", inet_ntoa(ip->ip_src));
     if (is_local_ip(target_addr_s)){
         printf("发出UDP数据包\n");
-        inode = port_inode(addr->source);
+        // inode = port_inode(addr->source);
 
     } else if(is_local_ip(target_addr_d)){
         printf("接收UDP数据包\n");
-        inode = port_inode(addr->dest);
+        // inode = port_inode(addr->dest);
     } else {
         printf("不是本地发出或接收的数据包\n");
     }

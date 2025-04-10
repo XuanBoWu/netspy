@@ -20,6 +20,8 @@ typedef struct {
     int capacity;            // 队列最大容量
 } Queue;
 
+extern const Queue* queue;
+
 Queue* queue_init(int capacity);
 Node* find_node(Queue* queue, int key);
 void append_to_queue(Queue* queue, Node* node);

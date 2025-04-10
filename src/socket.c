@@ -85,6 +85,19 @@ socket_info* create_socket_info(
     return info;
 }
 
+socket_info* find_by_local_port(Queue* queue, u_short port) {
+    Node* current = queue->head;
+    while (current) {
+        socket_info* info = (socket_info*)current->value;
+        // print_socket_info(0, info); // 调试打印
+        if (info && ntohs(info->local_port) == port) {
+            return info;
+        }
+        current = current->next;
+    }
+    printf("未查询到端口：%d 对应的进程\n", port);
+    return NULL;
+}
 
 int get_socket(char * socket_fp, Queue* queue){
     // 根据传入的地址读取socket状态文件
@@ -103,6 +116,7 @@ int get_socket(char * socket_fp, Queue* queue){
     }
 
     while (fgets(line, sizeof(line), fp)) {
+        // printf("原始数据：%s", line); // 调试打印
          // 将行拆分为标记（字段）
         char *fields[32];
         int field_count = 0;
@@ -146,7 +160,7 @@ int get_socket(char * socket_fp, Queue* queue){
         // 将端口从十六进制字符串转换为主机字节顺序
         uint8_t port_bytes[2];
         for (int i = 0; i < 2; i++) {
-            if (sscanf(l_port_part + 2*i, "%2hhx", &port_bytes[1-i]) != 1) {
+            if (sscanf(l_port_part + 2*i, "%2hhx", &port_bytes[i]) != 1) {
                 fprintf(stderr, "Failed to parse port: %s\n", l_port_part);
                 break;
             }
@@ -166,6 +180,8 @@ int get_socket(char * socket_fp, Queue* queue){
             inode, 
             pi->pid, pi->process_name);
         
+        // print_socket_info(0, info); // 调试打印
+
         if (info) {
             queue_put(queue, inode, info, free_socket_info_callback);
         }
@@ -182,11 +198,11 @@ void* refresh_socket(void * queue){
         get_socket("/proc/net/udp", queue);
         get_socket("/proc/net/tcp", queue);
         i++;
-        printf("刷新次数：%d\n", i);
+        // printf("刷新次数：%d\n", i);
 
-        if (i%200 == 0) {
-            queue_print(queue, print_socket_info);
-        }
+        // if (i%200 == 0) {
+        //     queue_print(queue, print_socket_info);
+        // }
         usleep(1000000 / REFRESH_RATE_HZ);
     }
 }
