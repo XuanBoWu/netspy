@@ -136,7 +136,7 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     //首先判断数据包传输方向,传入源IP判断是发出数据包还是接受数据包
     u_short process_port = 0; // 初始化进程端口
     int pack_d = packet_direction(src_ip, dst_ip); // 获取数据包传输方向
-    printf("数据包传输方向：%d\n", pack_d);
+    
 
     // 根据传输方向判断进程端口，并存储
     if (pack_d == 0){
@@ -152,6 +152,7 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
         // 内部传输数据包, 进程端口定义为源端口
         process_port = src_port;
     }
+    printf("数据包传输方向：%d\n", pack_d);
 
     // 初始化进程名字符串
     ino_t inode = 0;
@@ -167,13 +168,13 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
     }
     
 
-    printf("##################################\n");
+    printf("################# UDP数据包 #################\n");
     printf("%s:%u --> %s:%u\n", src_ip_str, src_port, dst_ip_str, dst_port);
     printf("Process Port: %u\n", process_port);
     printf("Inode: %lu\n", inode);
     printf("PID: %d\n", pid);
     printf("Process Name: %s\n", process_name);
-    printf("##################################\n");
+    printf("###########################################\n");
 
     // dns 协议解析
 
@@ -325,13 +326,73 @@ void udp_callback(struct tuple4 *addr, char *buf, int len, struct ip *ip) {
 }
 
 void tcp_callback(struct tcp_stream *ts, void **param) {
-    printf("TCP\n");
+    struct tuple4 *addr = &ts->addr;  // 获取TCP连接的四元组信息
+    
+    struct in_addr src_ip, dst_ip;
+    src_ip.s_addr = addr->saddr;
+    dst_ip.s_addr = addr->daddr;
+
+    // 转换IP地址（网络字节序 -> 点分十进制字符串）
+    char src_ip_str[INET_ADDRSTRLEN];
+    char dst_ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(addr->saddr), src_ip_str, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &(addr->daddr), dst_ip_str, INET_ADDRSTRLEN);
+    
+    // 获取源端口和目标端口（网络字节序 -> 主机字节序）
+    uint16_t src_port = ntohs(addr->source);
+    uint16_t dst_port = ntohs(addr->dest);
+
+    //首先判断数据包传输方向,传入源IP判断是发出数据包还是接受数据包
+    u_short process_port = 0; // 初始化进程端口
+    int pack_d = packet_direction(src_ip, dst_ip); // 获取数据包传输方向
+    
+
+    // 根据传输方向判断进程端口，并存储
+    if (pack_d == 0){
+        // 既不是传入也不是发出 不解析
+        return;
+    } else if (pack_d == 1) {
+        // 向外发出数据包，源端口为进程端口
+        process_port = src_port;
+    } else if (pack_d == 2) {
+        // 向内接受数据包， 目标端口为进程端口
+        process_port = dst_port;
+    } else if (pack_d == 3) {
+        // 内部传输数据包, 进程端口定义为源端口
+        process_port = src_port;
+    }
+    printf("数据包传输方向：%d\n", pack_d);
+    
+    // 初始化进程名字符串
+    ino_t inode = 0;
+    pid_t pid = 0;
+    char *process_name = malloc(256);
+    socket_info* info = NULL;
+    if ((info = find_by_local_port(queue, process_port))){
+        pid = info->pid;
+        process_name = info->process_name;
+        inode = info->inode;
+    } else {
+        strcpy(process_name, "unknown");
+    }
+
+    // 按照指定格式打印TCP连接信息
+    printf("################# TCP数据包 #################\n");
+    printf("%s:%d --> %s:%d\n", src_ip_str, src_port, dst_ip_str, dst_port);
+    printf("Process Port: %d\n", process_port);  
+    printf("Inode: %lu\n", inode);
+    printf("PID: %d\n", pid);
+    printf("Process Name: %s\n", process_name);
+    printf("###########################################\n\n");
+    
+    // 可选：打印数据（如果处于NIDS_DATA状态）
     if (ts->nids_state == NIDS_DATA) {
-        printf("TCP Data: %.*s\n", ts->server.count_new, ts->server.data);
+        printf("Data Length: %d\n", ts->server.count_new);
     }
 }
 
-int net_cap(){
+int 
+net_cap(){
     printf("HELLO\n");
 
     nids_params.device = "any";

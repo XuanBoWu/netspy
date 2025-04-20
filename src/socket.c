@@ -89,8 +89,9 @@ socket_info* find_by_local_port(Queue* queue, u_short port) {
     Node* current = queue->head;
     while (current) {
         socket_info* info = (socket_info*)current->value;
+        // printf("查询端口：%d\n", port);  // 调试打印
         // print_socket_info(0, info); // 调试打印
-        if (info && ntohs(info->local_port) == port) {
+        if (info && (ntohs(info->local_port) == port || ntohs(info->rem_port) == port)) {
             return info;
         }
         current = current->next;
