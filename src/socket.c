@@ -325,15 +325,15 @@ int get_socket6(char *socket_fp, Queue* queue) {
 void* refresh_socket(void * queue){
     int i = 0;
     while(1){
-        // get_socket("/proc/net/udp", queue);
-        // get_socket("/proc/net/tcp", queue);
+        get_socket("/proc/net/udp", queue);
+        get_socket("/proc/net/tcp", queue);
         get_socket6("/proc/net/tcp6", queue);
         i++;
-        printf("刷新次数：%d\n", i);
+        // printf("刷新次数：%d\n", i);
 
-        if (i%200 == 0) {
-            queue_print(queue, print_socket_info);
-        }
+        // if (i%200 == 0) {
+        //     queue_print(queue, print_socket_info);
+        // }
         usleep(1000000 / REFRESH_RATE_HZ);
     }
 }
