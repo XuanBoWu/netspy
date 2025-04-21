@@ -16,6 +16,20 @@
 static int get_process_name(pid_t pid, char *name_buf, size_t buf_size) {
     char path[PATH_MAX];
     FILE *fp;
+
+    // 尝试从 cmdline 文件获取
+    snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+    if ((fp = fopen(path, "r"))) {
+        if (fgets(name_buf, buf_size, fp)) {
+            fclose(fp);
+            // 去除换行符
+            size_t len = strlen(name_buf);
+            if (len > 0 && name_buf[len-1] == '\n')
+                name_buf[len-1] = '\0';
+            return 0;
+        }
+        fclose(fp);
+    }
     
     // 尝试从 comm 文件获取
     snprintf(path, sizeof(path), "/proc/%d/comm", pid);
