@@ -335,12 +335,12 @@ void tcp_callback(struct tcp_stream *ts, void **param) {
     // 转换IP地址（网络字节序 -> 点分十进制字符串）
     char src_ip_str[INET_ADDRSTRLEN];
     char dst_ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(addr->saddr), src_ip_str, INET_ADDRSTRLEN);
-    inet_ntop(AF_INET, &(addr->daddr), dst_ip_str, INET_ADDRSTRLEN);
+    strcpy(src_ip_str, inet_ntoa(src_ip));
+    strcpy(dst_ip_str, inet_ntoa(dst_ip));
     
-    // 获取源端口和目标端口（网络字节序 -> 主机字节序）
-    uint16_t src_port = ntohs(addr->source);
-    uint16_t dst_port = ntohs(addr->dest);
+    // 获取源端口和目标端口 不需要转换
+    u_short src_port = addr->source;
+    u_short dst_port = addr->dest;
 
     //首先判断数据包传输方向,传入源IP判断是发出数据包还是接受数据包
     u_short process_port = 0; // 初始化进程端口
@@ -391,8 +391,7 @@ void tcp_callback(struct tcp_stream *ts, void **param) {
     }
 }
 
-int 
-net_cap(){
+int net_cap(){
     printf("HELLO\n");
 
     nids_params.device = "any";
