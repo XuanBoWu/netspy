@@ -193,17 +193,147 @@ int get_socket(char * socket_fp, Queue* queue){
 
 }
 
+int get_socket6(char *socket_fp, Queue* queue) {
+    // 根据传入的地址读取socket状态文件
+    FILE *fp = fopen(socket_fp, "r");
+    if (!fp) {
+        fprintf(stderr, "Failed to open %s: %s\n", socket_fp, strerror(errno));
+        return 1;
+    }
+
+    // 初始化
+    char line[512];
+    // 跳过标题行
+    if (!fgets(line, sizeof(line), fp)) {
+        fclose(fp);
+        return 0;
+    }
+
+    while (fgets(line, sizeof(line), fp)) {
+        // 将行拆分为标记（字段）
+        char *fields[32];
+        int field_count = 0;
+        char *saveptr;
+        char *token = strtok_r(line, " \t\n", &saveptr);
+        while (token && field_count < 32) {
+            fields[field_count++] = token;
+            token = strtok_r(NULL, " \t\n", &saveptr);
+        }
+        if (field_count < 10) {
+            continue; // 跳过无效行
+        }
+
+        // 解析本地地址（字段[1]为"IPv6:端口"）
+        char *local_addr = fields[1];
+        char *rem_addr = fields[2];
+        
+        // 分离IPv6地址和端口
+        char *l_ip6_part = strtok_r(local_addr, ":", &saveptr);
+        char *l_port_part = strtok_r(NULL, ":", &saveptr);
+        char *r_ip6_part = strtok_r(rem_addr, ":", &saveptr);
+        char *r_port_part = strtok_r(NULL, ":", &saveptr);
+        
+        if (!l_ip6_part || !l_port_part || strlen(l_ip6_part) != 32 || strlen(l_port_part) != 4 ||
+            !r_ip6_part || !r_port_part || strlen(r_ip6_part) != 32 || strlen(r_port_part) != 4) {
+            fprintf(stderr, "Invalid IPv6 address format: %s\n", local_addr);
+            continue;
+        }
+
+        // 检查是否是IPv4映射地址（::ffff:xxxx格式）
+        // IPv4映射地址的前80位为0，后16位为1，然后是32位IPv4地址
+        // 格式为: 0000000000000000FFFF0000 + IPv4地址
+        const char *ipv4_mapped_prefix = "0000000000000000FFFF0000";
+        
+        // 检查本地地址是否是IPv4映射
+        if (strncmp(l_ip6_part, ipv4_mapped_prefix, strlen(ipv4_mapped_prefix)) != 0) {
+            continue; // 跳过非IPv4映射的IPv6地址
+        }
+        
+        // 检查远程地址是否是IPv4映射
+        if (strncmp(r_ip6_part, ipv4_mapped_prefix, strlen(ipv4_mapped_prefix)) != 0) {
+            continue; // 跳过非IPv4映射的IPv6地址
+        }
+        
+        // 提取IPv4部分（最后8个字符）
+        char *l_ip4_part = l_ip6_part + 24; // 跳过前24个字符（80位+16位）
+        char *r_ip4_part = r_ip6_part + 24; // 同上
+
+        struct tuple4 *addr = malloc(sizeof(struct tuple4));
+        
+        // 解析本地IPv4地址
+        uint8_t l_ip_bytes[4];
+        for (int i = 0; i < 4; i++) {
+            if (sscanf(l_ip4_part + 2*i, "%2hhx", &l_ip_bytes[3-i]) != 1) {
+                fprintf(stderr, "Failed to parse IPv4 address: %s\n", l_ip4_part);
+                break;
+            }
+        }
+        addr->saddr = *(u_int32_t*)l_ip_bytes;
+        
+        // 解析远程IPv4地址
+        uint8_t r_ip_bytes[4];
+        for (int i = 0; i < 4; i++) {
+            if (sscanf(r_ip4_part + 2*i, "%2hhx", &r_ip_bytes[3-i]) != 1) {
+                fprintf(stderr, "Failed to parse IPv4 address: %s\n", r_ip4_part);
+                break;
+            }
+        }
+        addr->daddr = *(u_int32_t*)r_ip_bytes;
+        
+        // 解析本地端口
+        uint8_t l_port_bytes[2];
+        for (int i = 0; i < 2; i++) {
+            if (sscanf(l_port_part + 2*i, "%2hhx", &l_port_bytes[i]) != 1) {
+                fprintf(stderr, "Failed to parse port: %s\n", l_port_part);
+                break;
+            }
+        }
+        addr->source = *(uint16_t*)l_port_bytes;
+        
+        // 解析远程端口
+        uint8_t r_port_bytes[2];
+        for (int i = 0; i < 2; i++) {
+            if (sscanf(r_port_part + 2*i, "%2hhx", &r_port_bytes[i]) != 1) {
+                fprintf(stderr, "Failed to parse port: %s\n", r_port_part);
+                break;
+            }
+        }
+        addr->dest = *(uint16_t*)r_port_bytes;
+        
+        // 解析inode编号（第10个字段，索引9）
+        ino_t inode = strtoul(fields[9], NULL, 10);
+
+        // 根据 inode 查询 PID 和进程名
+        process_info* pi = find_process_by_inode(inode);
+
+        // 初始化 socket 节点
+        socket_info *info = create_socket_info(
+            addr->saddr, addr->source, 
+            addr->daddr, addr->dest, 
+            inode, 
+            pi->pid, pi->process_name);
+        
+        if (info) {
+            queue_put(queue, inode, info, free_socket_info_callback);
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+
+
 void* refresh_socket(void * queue){
     int i = 0;
     while(1){
-        get_socket("/proc/net/udp", queue);
-        get_socket("/proc/net/tcp", queue);
+        // get_socket("/proc/net/udp", queue);
+        // get_socket("/proc/net/tcp", queue);
+        get_socket6("/proc/net/tcp6", queue);
         i++;
-        // printf("刷新次数：%d\n", i);
+        printf("刷新次数：%d\n", i);
 
-        // if (i%200 == 0) {
-        //     queue_print(queue, print_socket_info);
-        // }
+        if (i%200 == 0) {
+            queue_print(queue, print_socket_info);
+        }
         usleep(1000000 / REFRESH_RATE_HZ);
     }
 }

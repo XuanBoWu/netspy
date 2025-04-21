@@ -6,7 +6,7 @@
 #include "hash.h"
 #include "inode.h"
 
-#define REFRESH_RATE_HZ 200 // 刷新频率50Hz
+#define REFRESH_RATE_HZ 100 // 刷新频率100Hz
 
 typedef struct {
     in_addr_t local_ip;
